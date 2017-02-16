@@ -1,5 +1,6 @@
 class IncomingMessage
   BOT_IDENTIFIER_REGEX = /^@penguin-bot/i
+  BOT_NAME = 'PenguinBot'
 
   # Example parameters:
   # {
@@ -23,24 +24,37 @@ class IncomingMessage
 
     raise 'wrong_token' unless MessageAuthenticator.authentic?(params[:token])
     return unless should_respond?(params[:text])
+    send_message(generate_response(params))
+  end
 
-    client = GroupMe::Client.new(token: ENV['GROUPME_API_TOKEN'])
-    client.create_message(params[:group_id], generate_response(params))
+  def self.client
+    GroupmeApi.new(token: ENV['GROUPME_API_TOKEN'], bot_id: ENV['BOT_ID'])
+  end
+
+  def self.send_single_message(message)
+    client.send_bot_message(message)
+  end
+
+  def self.send_mass_message(message)
+    client.mass_message(message, message_prefix = "[#{BOT_NAME}]")
   end
 
   def self.parse_command(text)
-    return 'echo'
+    return 'everyone' if text.match(/@everyone/i)
+    'echo'
   end
 
   def self.generate_response(params)
     command = parse_command(params[:text])
-    prefix = '[PenguinBot]'
 
     if command == 'echo'
-      response = "I hear you #{params[:name]}, you said '#{strip_identifier(params[:text])}'"
+      response = "[#{BOT_NAME}] I hear you #{params[:name]}, you said '#{strip_identifier(params[:text])}'"
+      send_single_message(response)
+    elsif command == 'everyone'
+      text = strip_identifier(params[:text])
+      text = text.gsub(/@everyone/i, '')
+      send_mass_message(text)
     end
-
-    "#{prefix} #{response}"
   end
 
   def self.should_respond?(message)
