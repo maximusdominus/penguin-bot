@@ -1,9 +1,4 @@
-require 'net/https'
-require 'open-uri'
-
 class GroupmeApi
-  BASE_URL = 'https://api.groupme.com/v3'
-
   attr_accessor :token, :bot_id
 
   def initialize(options)
@@ -13,15 +8,15 @@ class GroupmeApi
 
   def fetch_messages
     group_id = fetch_bot_group_id
-    execute(:get, "groups/#{group_id}/messages")
+    get("groups/#{group_id}/messages")
   end
 
   def fetch_bot_group_id
-    execute(:get, 'bots').select{|bot| bot['bot_id'] == @bot_id}.first['group_id']
+    get('bots').select{|bot| bot['bot_id'] == @bot_id}.first['group_id']
   end
 
   def fetch_group_members(group_id)
-    execute(:get, "groups/#{group_id}")['members']
+    get("groups/#{group_id}")['members']
         .map{|member| member.select{|k,v| k.in?(%w(nickname user_id))}}
   end
 
@@ -51,8 +46,16 @@ class GroupmeApi
     })
 
 
-    send_bot_message(text, {
-        attachments: attachments
+    send_user_message(text, attachments)
+  end
+
+  def send_user_message(text, attachments)
+    post("groups/#{fetch_bot_group_id}/messages", {
+        message: {
+            text: text,
+            attachments: attachments,
+            source_guid: SecureRandom.uuid
+        }
     })
   end
 
@@ -60,47 +63,30 @@ class GroupmeApi
   def send_bot_message(text, data = {})
     data[:bot_id] = @bot_id
     data[:text] = text
-
-    data = data.transform_keys{|k| k.to_s}
-
-    puts "SENDING BOT MESSAGE WITH DATA:"
-    puts data
-    execute(:post, 'bots/post', data)
+    post('bots/post', data)
   end
 
-  def execute(method, api_path, data = {})
-    data[:token] = @token
-    url = URI.parse("#{BASE_URL}/#{api_path}")
+  def connection
+    @connection ||= Faraday.new 'https://api.groupme.com/' do |f|
+      f.headers['X-Access-Token'] = @token
+      f.adapter Faraday.default_adapter
+    end
+  end
 
-    if method == :post
-      req = Net::HTTP::Post.new(url.path)
-      req.form_data = data
-
-      con = Net::HTTP.new(url.host, url.port)
-      con.use_ssl = true
-      response = con.start do |http|
-        puts req.body
-        http.request(req)
-      end
-
-      body = response.body
-      if body.blank?
-        json = {}
-      else
-        json = JSON.parse(body)
-      end
-
-    elsif method == :get
-      url.query = URI.encode_www_form(data)
-      json = JSON.parse(Net::HTTP.get(url))
+  def request(method, path, data = {})
+    res = connection.send(method, "v3/#{path}", data)
+    if res.success? && !res.body.empty? && res.body != ' '
+      JSON.parse(res.body)['response']
     else
-      raise "invalid method: #{method}"
+      res
     end
+  end
 
-    if json && json['meta'] && json['meta']['errors'].present?
-      raise json['meta']['errors'].join(', ')
-    end
+  def get(path, options = {})
+    request(:get, path, options)
+  end
 
-    json['response']
+  def post(path, data = {})
+    request(:post, path, data.to_json)
   end
 end
