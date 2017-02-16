@@ -1,4 +1,5 @@
 class IncomingMessage
+  BOT_IDENTIFIER_REGEX = /^@penguin-bot/i
 
   # Example parameters:
   # {
@@ -17,19 +18,36 @@ class IncomingMessage
   # }
   #
 
-  def self.should_respond?(message)
-    message.to_s.strip =~ /^penguin-bot/i
-  end
-
   def self.receive_message(params)
     params = params.with_indifferent_access
 
-    return if MessageAuthenticator.authentic?(params[:token])
+    raise 'wrong_token' unless MessageAuthenticator.authentic?(params[:token])
     return unless should_respond?(params[:text])
 
     client = GroupMe::Client.new(token: ENV['GROUPME_API_TOKEN'])
-    group_id = params[:group_id]
-    message = "[PenguinBot] #{params[:name]} says: #{params[:text]}"
-    client.create_message(group_id, message)
+    client.create_message(params[:group_id], generate_response(params))
+  end
+
+  def self.parse_command(text)
+    return 'echo'
+  end
+
+  def self.generate_response(params)
+    command = parse_command(params[:text])
+    prefix = '[PenguinBot]'
+
+    if command == 'echo'
+      response = "I hear you #{params[:name]}, you said '#{strip_identifier(params[:text])}'"
+    end
+
+    "#{prefix} #{response}"
+  end
+
+  def self.should_respond?(message)
+    message.to_s.strip =~ BOT_IDENTIFIER_REGEX
+  end
+
+  def self.strip_identifier(message)
+    message.to_s.strip.gsub(BOT_IDENTIFIER_REGEX, '').strip
   end
 end
